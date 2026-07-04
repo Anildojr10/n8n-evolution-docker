@@ -1,0 +1,226 @@
+{
+  "name": "Aula04 - Fluxo03 - AI Agent + Postgres no WhatsApp",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "@devlikeapro/n8n-nodes-waha.wahaTrigger",
+      "typeVersion": 202502,
+      "position": [-416, 64],
+      "id": "waha-trigger-03",
+      "name": "WAHA Trigger",
+      "webhookId": "aula04-fluxo03-trigger",
+      "alwaysOutputData": true,
+      "notes": "Saída 0 = outros eventos (ignorar). Saída 1 = mensagens de texto."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "field-from-03",
+              "name": "from",
+              "value": "={{ $json.payload.from }}",
+              "type": "string"
+            },
+            {
+              "id": "field-mensagem-03",
+              "name": "mensagem",
+              "value": "={{ $json.payload.body }}",
+              "type": "string"
+            },
+            {
+              "id": "field-session-03",
+              "name": "session",
+              "value": "={{ $json.session }}",
+              "type": "string"
+            },
+            {
+              "id": "field-id-03",
+              "name": "id_mensagem",
+              "value": "={{ $json.payload.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-16, 48],
+      "id": "edit-fields-03",
+      "name": "Edit Fields",
+      "notes": "Organiza os dados do payload WAHA."
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Seen",
+        "session": "default",
+        "chatId": "={{ $json.from }}",
+        "messageId": "={{ $json.id_mensagem }}",
+        "requestOptions": {}
+      },
+      "type": "@devlikeapro/n8n-nodes-waha.WAHA",
+      "typeVersion": 202502,
+      "position": [224, 48],
+      "id": "send-seen-03",
+      "name": "Send Seen",
+      "credentials": {
+        "wahaApi": {
+          "id": "WAHA_CREDENTIAL_ID",
+          "name": "WAHA account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Edit Fields').item.json.mensagem }}",
+        "options": {
+          "systemMessage": "Você é um analista de vendas da empresa.\nResponda perguntas sobre vendas, vendedores, produtos e faturamento.\nQuando precisar de dados, use a ferramenta de banco de dados disponível.\n\nSchemas disponíveis:\n- vendas.nota_fiscal (id, id_vendedor, data_venda, valor)\n- geral.pessoa_fisica (id, nome, cpf, email)\n- financeiro.conta_pagar (id, emissao, vencimento, descricao, valor_atual)\n\nRelacionamento: nota_fiscal.id_vendedor → pessoa_fisica.id\n\nRegras de resposta:\n- Responda sempre em português do Brasil\n- Texto simples — nunca use HTML, markdown ou asteriscos\n- Apresente valores no formato: R$ 1.234,56\n- Seja objetivo — mensagens de WhatsApp devem ser curtas\n- Máximo 1 pergunta por resposta\n- Se não encontrar dados, informe claramente"
+        }
+      },
+      "id": "ai-agent-03",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [512, 48],
+      "notes": "AI Agent com Groq + memória + ferramenta Postgres."
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "groq-model-03",
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [320, 304],
+      "credentials": {
+        "groqApi": {
+          "id": "EmlC0kY4XiDMqq2u",
+          "name": "Groq account"
+        }
+      },
+      "notes": "Temperatura 0.2 para respostas mais factuais e consistentes."
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Edit Fields').item.json.from }}",
+        "contextWindowLength": 10
+      },
+      "id": "memory-03",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [512, 304],
+      "notes": "Memória de sessão por número de WhatsApp."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $fromAI('query', 'SQL query para consultar o banco de dados e responder a pergunta do usuário. Use apenas os schemas: vendas.nota_fiscal, geral.pessoa_fisica, financeiro.conta_pagar') }}",
+        "options": {}
+      },
+      "id": "postgres-tool-03",
+      "name": "Consultar Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 304],
+      "credentials": {
+        "postgres": {
+          "id": "PkzTpJRPcfSNpFh9",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Ferramenta do AI Agent. O agente gera o SQL automaticamente com base na pergunta do usuário."
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $('Edit Fields').item.json.session }}",
+        "chatId": "={{ $('Edit Fields').item.json.from }}",
+        "text": "={{ $('AI Agent').item.json.output }}",
+        "requestOptions": {}
+      },
+      "type": "@devlikeapro/n8n-nodes-waha.WAHA",
+      "typeVersion": 202502,
+      "position": [880, 48],
+      "id": "send-text-03",
+      "name": "Send a text message",
+      "credentials": {
+        "wahaApi": {
+          "id": "WAHA_CREDENTIAL_ID",
+          "name": "WAHA account"
+        }
+      },
+      "notes": "Envia a resposta do agente de volta ao WhatsApp."
+    }
+  ],
+  "connections": {
+    "WAHA Trigger": {
+      "main": [
+        [],
+        [
+          { "node": "Edit Fields", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          { "node": "Send Seen", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Send Seen": {
+      "main": [
+        [
+          { "node": "AI Agent", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          { "node": "Send a text message", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          { "node": "AI Agent", "type": "ai_languageModel", "index": 0 }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          { "node": "AI Agent", "type": "ai_memory", "index": 0 }
+        ]
+      ]
+    },
+    "Consultar Postgres": {
+      "ai_tool": [
+        [
+          { "node": "AI Agent", "type": "ai_tool", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "72522d74c0e724c8e33656d7f6af84d1767f86313e60e565df5c4f834e583033"
+  },
+  "tags": [{ "name": "aula04" }]
+}
