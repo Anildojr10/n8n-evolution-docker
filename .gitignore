@@ -1,0 +1,9 @@
+# Ignorar o .env com a senha real
+.env
+
+# Ignorar arquivos de sistema
+.DS_Store
+Thumbs.db
+
+# Ignorar logs
+*.log
