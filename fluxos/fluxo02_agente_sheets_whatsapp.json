@@ -1,0 +1,259 @@
+{
+  "name": "Aula04 - Fluxo02 - Agente WhatsApp + Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "aula04-fluxo02-sheets",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-400, 0],
+      "id": "webhook-f02",
+      "name": "Webhook",
+      "webhookId": "aula04-fluxo02-sheets",
+      "notes": "Recebe mensagens da Evolution API. Configurar a URL de produção no Manager da Evolution."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f02-from",
+              "name": "from",
+              "value": "={{ $json.body.sender }}",
+              "type": "string"
+            },
+            {
+              "id": "f02-mensagem",
+              "name": "mensagem",
+              "value": "={{ $json.body.data.message.conversation }}",
+              "type": "string"
+            },
+            {
+              "id": "f02-instancia",
+              "name": "instancia",
+              "value": "={{ $json.body.instance }}",
+              "type": "string"
+            },
+            {
+              "id": "f02-remoteJid",
+              "name": "remoteJid",
+              "value": "={{ $json.body.data.key.remoteJid }}",
+              "type": "string"
+            },
+            {
+              "id": "f02-pushName",
+              "name": "pushName",
+              "value": "={{ $json.body.data.pushName }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-160, 0],
+      "id": "edit-fields-f02",
+      "name": "Edit Fields",
+      "notes": "Organiza o payload da Evolution API em campos simples."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "ID_DA_PLANILHA_AQUI",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "base_vendas",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [80, 0],
+      "id": "sheets-f02",
+      "name": "Ler base_vendas",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      },
+      "notes": "ATENÇÃO: substituir ID_DA_PLANILHA_AQUI pelo ID real da planilha base_vendas da Aula 02. Configurar manualmente após importar."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// CONSOLIDA OS 314 REGISTROS EM CONTEXTO PARA O AI AGENT\n// Calcula resumos, rankings e tendências automaticamente\n// ============================================================\n\nconst registros = $input.all().map(i => i.json);\n\nif (!registros || registros.length === 0) {\n  return [{ json: { contexto: 'Nenhum dado encontrado na planilha.', pergunta: $('Edit Fields').item.json.mensagem, nome: $('Edit Fields').item.json.pushName } }];\n}\n\nconst fmtBRL = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });\nconst hoje = new Date().toLocaleDateString('pt-BR');\n\n// ── Totais gerais ──\nconst totalVendas = registros.reduce((s, r) => s + Number(r.valor_total || 0), 0);\nconst totalPedidos = registros.length;\nconst ticketMedio = totalPedidos > 0 ? totalVendas / totalPedidos : 0;\n\n// ── Ranking por vendedor ──\nconst porVendedor = {};\nregistros.forEach(r => {\n  const v = r.vendedor || 'Desconhecido';\n  if (!porVendedor[v]) porVendedor[v] = { total: 0, pedidos: 0 };\n  porVendedor[v].total += Number(r.valor_total || 0);\n  porVendedor[v].pedidos += 1;\n});\nconst rankingVendedores = Object.entries(porVendedor)\n  .sort((a, b) => b[1].total - a[1].total)\n  .map(([nome, d], i) => ({\n    posicao: i + 1,\n    vendedor: nome,\n    total_vendas: fmtBRL(d.total),\n    total_pedidos: d.pedidos,\n    ticket_medio: fmtBRL(d.total / d.pedidos)\n  }));\n\n// ── Ranking por produto ──\nconst porProduto = {};\nregistros.forEach(r => {\n  const p = r.produto || 'Desconhecido';\n  if (!porProduto[p]) porProduto[p] = { total: 0, pedidos: 0, quantidade: 0 };\n  porProduto[p].total += Number(r.valor_total || 0);\n  porProduto[p].pedidos += 1;\n  porProduto[p].quantidade += Number(r.quantidade || 0);\n});\nconst rankingProdutos = Object.entries(porProduto)\n  .sort((a, b) => b[1].total - a[1].total)\n  .map(([nome, d], i) => ({\n    posicao: i + 1,\n    produto: nome,\n    total_vendas: fmtBRL(d.total),\n    total_pedidos: d.pedidos,\n    quantidade_vendida: d.quantidade\n  }));\n\n// ── Ranking por canal ──\nconst porCanal = {};\nregistros.forEach(r => {\n  const c = r.canal || 'Desconhecido';\n  if (!porCanal[c]) porCanal[c] = { total: 0, pedidos: 0 };\n  porCanal[c].total += Number(r.valor_total || 0);\n  porCanal[c].pedidos += 1;\n});\nconst rankingCanais = Object.entries(porCanal)\n  .sort((a, b) => b[1].total - a[1].total)\n  .map(([canal, d]) => ({\n    canal,\n    total_vendas: fmtBRL(d.total),\n    total_pedidos: d.pedidos\n  }));\n\n// ── Ranking por cidade ──\nconst porCidade = {};\nregistros.forEach(r => {\n  const c = r.cidade || r.client_cidade || 'Desconhecida';\n  if (!porCidade[c]) porCidade[c] = { total: 0, pedidos: 0 };\n  porCidade[c].total += Number(r.valor_total || 0);\n  porCidade[c].pedidos += 1;\n});\nconst rankingCidades = Object.entries(porCidade)\n  .sort((a, b) => b[1].total - a[1].total)\n  .map(([cidade, d]) => ({\n    cidade,\n    total_vendas: fmtBRL(d.total),\n    total_pedidos: d.pedidos\n  }));\n\n// ── Monta contexto final ──\nconst contexto = {\n  data_consulta: hoje,\n  total_registros: totalPedidos,\n  resumo_geral: {\n    total_pedidos: totalPedidos,\n    total_vendas: fmtBRL(totalVendas),\n    ticket_medio: fmtBRL(ticketMedio)\n  },\n  ranking_vendedores: rankingVendedores,\n  ranking_produtos: rankingProdutos,\n  ranking_canais: rankingCanais,\n  ranking_cidades: rankingCidades\n};\n\nreturn [{\n  json: {\n    contexto: JSON.stringify(contexto, null, 2),\n    pergunta: $('Edit Fields').item.json.mensagem,\n    nome: $('Edit Fields').item.json.pushName || 'usuário'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [320, 0],
+      "id": "code-f02",
+      "name": "Consolidar Dados",
+      "notes": "Transforma os 314 registros em um contexto estruturado: totais, rankings por vendedor, produto, canal e cidade."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Nome do usuário: {{ $json.nome }}\n\nPergunta: {{ $json.pergunta }}\n\nDados disponíveis:\n{{ $json.contexto }}",
+        "options": {
+          "systemMessage": "Você é um assistente de vendas inteligente chamado DC Bot.\nResponde perguntas sobre os dados de vendas da empresa com base nos dados fornecidos.\n\nREGRAS OBRIGATÓRIAS:\n- Responda APENAS com base nos dados fornecidos — nunca invente números\n- Responda sempre em português do Brasil\n- Use texto simples — NUNCA use HTML, markdown com # ou ---\n- Use *asteriscos* para negrito (funciona no WhatsApp)\n- Use emojis para tornar a resposta mais visual\n- Seja direto e objetivo — máximo 15 linhas por resposta\n- Apresente valores no formato: R$ 1.234,56\n- Se a pergunta não tiver relação com vendas, responda educadamente que só tem acesso a dados de vendas\n- Máximo 1 pergunta de volta por resposta\n\nEXEMPLOS DE PERGUNTAS QUE VOCÊ SABE RESPONDER:\n- Qual vendedor vendeu mais?\n- Qual produto teve mais pedidos?\n- Qual canal trouxe mais receita?\n- Quantos pedidos temos no total?\n- Qual o ticket médio?\n- Qual cidade compra mais?"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [560, 0],
+      "id": "ai-agent-f02",
+      "name": "AI Agent",
+      "notes": "Responde a pergunta do usuário com base no contexto consolidado da planilha."
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [460, 220],
+      "id": "groq-f02",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "EmlC0kY4XiDMqq2u",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Edit Fields').item.json.from }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [620, 220],
+      "id": "memory-f02",
+      "name": "Window Buffer Memory",
+      "notes": "Memória de conversa por número de WhatsApp. Permite perguntas de acompanhamento."
+    },
+    {
+      "parameters": {
+        "resource": "messages-api",
+        "instanceName": "={{ $('Webhook').item.json.body.instance }}",
+        "remoteJid": "={{ $('Edit Fields').item.json.remoteJid }}",
+        "messageText": "={{ $json.output }}",
+        "options_message": {}
+      },
+      "type": "n8n-nodes-evolution-api.evolutionApi",
+      "typeVersion": 1,
+      "position": [800, 0],
+      "id": "send-text-f02",
+      "name": "Enviar Resposta",
+      "credentials": {
+        "evolutionApi": {
+          "id": "EVOLUTION_CREDENTIAL_ID",
+          "name": "Evolution account"
+        }
+      },
+      "notes": "Envia a resposta do agente de volta ao WhatsApp via Evolution API."
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Ler base_vendas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler base_vendas": {
+      "main": [
+        [
+          {
+            "node": "Consolidar Dados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar Dados": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Enviar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "72522d74c0e724c8e33656d7f6af84d1767f86313e60e565df5c4f834e583033"
+  },
+  "tags": [{ "name": "aula04" }]
+}
