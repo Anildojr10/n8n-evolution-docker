@@ -1,0 +1,222 @@
+{
+  "name": "Aula04 - Fluxo01 - AI Agent no WhatsApp",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "@devlikeapro/n8n-nodes-waha.wahaTrigger",
+      "typeVersion": 202502,
+      "position": [-416, 64],
+      "id": "waha-trigger-01",
+      "name": "WAHA Trigger",
+      "webhookId": "aula04-fluxo01-trigger",
+      "alwaysOutputData": true,
+      "notes": "Recebe mensagens do WhatsApp. Saída 0 = outros eventos (ignorar). Saída 1 = mensagens de texto."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "field-from",
+              "name": "from",
+              "value": "={{ $json.payload.from }}",
+              "type": "string"
+            },
+            {
+              "id": "field-mensagem",
+              "name": "mensagem",
+              "value": "={{ $json.payload.body }}",
+              "type": "string"
+            },
+            {
+              "id": "field-session",
+              "name": "session",
+              "value": "={{ $json.session }}",
+              "type": "string"
+            },
+            {
+              "id": "field-id",
+              "name": "id_mensagem",
+              "value": "={{ $json.payload.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-16, 48],
+      "id": "edit-fields-01",
+      "name": "Edit Fields",
+      "notes": "Organiza os dados do payload WAHA para os nós seguintes."
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Seen",
+        "session": "default",
+        "chatId": "={{ $json.from }}",
+        "messageId": "={{ $json.id_mensagem }}",
+        "requestOptions": {}
+      },
+      "type": "@devlikeapro/n8n-nodes-waha.WAHA",
+      "typeVersion": 202502,
+      "position": [224, 48],
+      "id": "send-seen-01",
+      "name": "Send Seen",
+      "credentials": {
+        "wahaApi": {
+          "id": "WAHA_CREDENTIAL_ID",
+          "name": "WAHA account"
+        }
+      },
+      "notes": "Marca a mensagem como lida (✓✓ azul). Boa prática: sempre antes de processar."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Edit Fields').item.json.mensagem }}",
+        "options": {
+          "systemMessage": "Você é um assistente virtual inteligente e prestativo.\nResponda sempre em português do Brasil.\nSeja direto e objetivo — mensagens de WhatsApp devem ser curtas.\nNunca use HTML, markdown ou asteriscos — texto simples apenas.\nMáximo 1 pergunta por resposta."
+        }
+      },
+      "id": "ai-agent-01",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [512, 48],
+      "notes": "AI Agent com Groq + memória por número de WhatsApp."
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {}
+      },
+      "id": "groq-model-01",
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [400, 304],
+      "credentials": {
+        "groqApi": {
+          "id": "EmlC0kY4XiDMqq2u",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Edit Fields').item.json.from }}",
+        "contextWindowLength": 10
+      },
+      "id": "memory-01",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [560, 304],
+      "notes": "Memória por número de WhatsApp. Cada conversa é independente."
+    },
+    {
+      "parameters": {
+        "resource": "Chatting",
+        "operation": "Send Text",
+        "session": "={{ $('Edit Fields').item.json.session }}",
+        "chatId": "={{ $('Edit Fields').item.json.from }}",
+        "text": "={{ $('AI Agent').item.json.output }}",
+        "requestOptions": {}
+      },
+      "type": "@devlikeapro/n8n-nodes-waha.WAHA",
+      "typeVersion": 202502,
+      "position": [880, 48],
+      "id": "send-text-01",
+      "name": "Send a text message",
+      "credentials": {
+        "wahaApi": {
+          "id": "WAHA_CREDENTIAL_ID",
+          "name": "WAHA account"
+        }
+      },
+      "notes": "Envia a resposta do AI Agent de volta para o WhatsApp."
+    }
+  ],
+  "connections": {
+    "WAHA Trigger": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Send Seen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Seen": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "72522d74c0e724c8e33656d7f6af84d1767f86313e60e565df5c4f834e583033"
+  },
+  "tags": [{ "name": "aula04" }]
+}
